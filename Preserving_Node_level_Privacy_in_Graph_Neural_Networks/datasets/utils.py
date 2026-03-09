@@ -1,3 +1,5 @@
+#数据集加载与处理
+#包含 get_raw_dataset、数据分割、特征归一化、子图采样封装
 import torch
 from pathlib import Path
 import numpy as np
@@ -15,6 +17,23 @@ import dgl
 from . import SETUP
 from privacy import accounting_analysis as aa
 
+#自定义数据集包装类，使其符合标准接口
+class CustomDatasetWrapper:
+    """Wrapper for custom PyG Data objects to match standard dataset interface"""
+    def __init__(self, data_obj):
+        self.data = data_obj
+        self.num_features = data_obj.x.shape[1]
+        self.num_classes = len(torch.unique(data_obj.y))
+    
+    def __getitem__(self, idx):
+        if idx != 0:
+            raise IndexError("Only single-graph dataset supported")
+        return self.data
+    
+    def __len__(self):
+        return 1
+
+#输出数据集信息
 def graph_dataset_summary(dataset, split):
     print(f'\n==> Summary of the dataset:...')
     print('='*50)
@@ -44,12 +63,13 @@ def graph_dataset_summary(dataset, split):
     print('='*50)
     print('\n')
 
-
+#分割数据集
 def get_split_train_val_test(dataset, split_ratio=(0.8, 0.01, 0.19), enfore_re_split=True):
     # Split the dataset into train, validation and test sets.
     # We use a 60-20-20 split.
     one_graph = dataset[0]
     '''dgl dataset'''
+    #处理 DGL 图数据集
     if hasattr(one_graph, 'ndata'):
         print(f'==> dgl graph dataset...')
         one_graph.train_mask, one_graph.val_mask, one_graph.test_mask = one_graph.ndata['train_mask'], one_graph.ndata['val_mask'], one_graph.ndata['test_mask']
@@ -62,11 +82,12 @@ def get_split_train_val_test(dataset, split_ratio=(0.8, 0.01, 0.19), enfore_re_s
         one_graph.edge_index = torch.stack([s,d], dim = 0)
 
     print(f'masks already defined?: {hasattr(one_graph, "train_mask")}, {hasattr(one_graph, "val_mask")}, {hasattr(one_graph, "test_mask")}')
+    #使用已有划分
     if hasattr(one_graph, 'train_mask') and hasattr(one_graph, 'val_mask') and hasattr(one_graph, 'test_mask') and not enfore_re_split:
         print(f'==> dataset already has train, val and test sets...')
         train_mask, val_mask, test_mask = one_graph.train_mask, one_graph.val_mask, one_graph.test_mask
         
-
+    #重新划分
     else:    
         print(f'==> spliting dataset into train, val and test sets by ratio: {split_ratio}...')
         num_nodes = one_graph.num_nodes
@@ -90,6 +111,7 @@ def get_split_train_val_test(dataset, split_ratio=(0.8, 0.01, 0.19), enfore_re_s
     split.train_mask, split.val_mask, split.test_mask = train_mask, val_mask, test_mask
     return split
 
+#根据名称加载数据集
 def get_raw_dataset(dataset_name):
     if dataset_name not in [
         'Amazon_Computers', 
@@ -114,6 +136,11 @@ def get_raw_dataset(dataset_name):
         'facebook',
         'twitch_DE',
         'dgl_famazon',
+        'twitch_PT',
+        'amazon_subgraph_canary_in',
+        'amazon_subgraph_canary_out',
+        'black',
+        'white'
         ]:
         raise ValueError(f'Invalid dataset name, got {dataset_name}')
 
@@ -209,6 +236,119 @@ def get_raw_dataset(dataset_name):
     elif dataset_name == 'dgl_famazon':
         from dgl.data import FraudAmazonDataset
         dataset = FraudAmazonDataset(raw_dir=data_file_root, train_size = 0.8, val_size = 0.01)
+    elif dataset_name == 'amazon_subgraph_canary_in':
+        # Load custom canary dataset from Test/amazon_subgraph_10000_TRAIN_100_canaries.pt
+        data_file = Path('/home/featurize/work/PNPiGNNs/Preserving_Node_level_Privacy_in_Graph_Neural_Networks/Test/amazon_subgraph_10000_TRAIN_100_canaries.pt')
+        if not data_file.exists():
+            raise FileNotFoundError(f"Dataset file not found: {data_file}")
+        
+        data_obj = torch.load(data_file)
+        
+        # 若保存的是 Data 对象，直接使用；若是 dict，则构造 Data
+        if isinstance(data_obj, dict):
+            from torch_geometric.data import Data
+            data_obj = Data(**data_obj)
+        elif not hasattr(data_obj, 'x'):
+            raise ValueError("Loaded object must be a Data object or dict with 'x', 'y', 'edge_index'")
+        
+        # 用 wrapper 使其符合标准接口
+        dataset = CustomDatasetWrapper(data_obj)
+        
+        # 检查是否已有 mask，若有则不重新划分
+        if hasattr(data_obj, 'train_mask') and hasattr(data_obj, 'val_mask') and hasattr(data_obj, 'test_mask'):
+            print(f"==> Using existing masks from dataset")
+            split = get_split_train_val_test([data_obj], enfore_re_split=False)
+        else:
+            print(f"==> Creating new masks (no existing masks found)")
+            split = get_split_train_val_test([data_obj])
+        
+        graph_dataset_summary(dataset, split)
+        return dataset, split
+        
+    elif dataset_name == 'amazon_subgraph_canary_out':
+        # Load custom canary dataset from Test/amazon_subgraph_10000_NONTRAIN_100_canaries.pt
+        data_file = Path('/home/featurize/work/PNPiGNNs/Preserving_Node_level_Privacy_in_Graph_Neural_Networks/Test/amazon_subgraph_10000_NONTRAIN_100_canaries.pt')
+        if not data_file.exists():
+            raise FileNotFoundError(f"Dataset file not found: {data_file}")
+        
+        data_obj = torch.load(data_file)
+        
+        # 若保存的是 Data 对象，直接使用；若是 dict，则构造 Data
+        if isinstance(data_obj, dict):
+            from torch_geometric.data import Data
+            data_obj = Data(**data_obj)
+        elif not hasattr(data_obj, 'x'):
+            raise ValueError("Loaded object must be a Data object or dict with 'x', 'y', 'edge_index'")
+        
+        # 用 wrapper 使其符合标准接口
+        dataset = CustomDatasetWrapper(data_obj)
+        
+        # 检查是否已有 mask，若有则不重新划分
+        if hasattr(data_obj, 'train_mask') and hasattr(data_obj, 'val_mask') and hasattr(data_obj, 'test_mask'):
+            print(f"==> Using existing masks from dataset")
+            split = get_split_train_val_test([data_obj], enfore_re_split=False)
+        else:
+            print(f"==> Creating new masks (no existing masks found)")
+            split = get_split_train_val_test([data_obj])
+        
+        graph_dataset_summary(dataset, split)
+        return dataset, split
+    elif dataset_name == 'black':
+        # Load custom canary dataset from Test/amazon_subgraph_10000_NONTRAIN_100_canaries.pt
+        data_file = Path('/home/featurize/work/PNPiGNNs/Preserving_Node_level_Privacy_in_Graph_Neural_Networks/Test/amazon_subgraph_black.pt')
+        if not data_file.exists():
+            raise FileNotFoundError(f"Dataset file not found: {data_file}")
+        
+        data_obj = torch.load(data_file)
+        
+        # 若保存的是 Data 对象，直接使用；若是 dict，则构造 Data
+        if isinstance(data_obj, dict):
+            from torch_geometric.data import Data
+            data_obj = Data(**data_obj)
+        elif not hasattr(data_obj, 'x'):
+            raise ValueError("Loaded object must be a Data object or dict with 'x', 'y', 'edge_index'")
+        
+        # 用 wrapper 使其符合标准接口
+        dataset = CustomDatasetWrapper(data_obj)
+        
+        # 检查是否已有 mask，若有则不重新划分
+        if hasattr(data_obj, 'train_mask') and hasattr(data_obj, 'val_mask') and hasattr(data_obj, 'test_mask'):
+            print(f"==> Using existing masks from dataset")
+            split = get_split_train_val_test([data_obj], enfore_re_split=False)
+        else:
+            print(f"==> Creating new masks (no existing masks found)")
+            split = get_split_train_val_test([data_obj])
+        
+        graph_dataset_summary(dataset, split)
+        return dataset, split
+    elif dataset_name == 'white':
+        # Load custom canary dataset
+        data_file = Path('/home/featurize/work/PNPiGNNs/Preserving_Node_level_Privacy_in_Graph_Neural_Networks/Test/white_audit_dataset.pt')
+        if not data_file.exists():
+            raise FileNotFoundError(f"Dataset file not found: {data_file}")
+        
+        data_obj = torch.load(data_file)
+        
+        # 若保存的是 Data 对象，直接使用；若是 dict，则构造 Data
+        if isinstance(data_obj, dict):
+            from torch_geometric.data import Data
+            data_obj = Data(**data_obj)
+        elif not hasattr(data_obj, 'x'):
+            raise ValueError("Loaded object must be a Data object or dict with 'x', 'y', 'edge_index'")
+        
+        # 用 wrapper 使其符合标准接口
+        dataset = CustomDatasetWrapper(data_obj)
+        
+        # 检查是否已有 mask，若有则不重新划分
+        if hasattr(data_obj, 'train_mask') and hasattr(data_obj, 'val_mask') and hasattr(data_obj, 'test_mask'):
+            print(f"==> Using existing masks from dataset")
+            split = get_split_train_val_test([data_obj], enfore_re_split=False)
+        else:
+            print(f"==> Creating new masks (no existing masks found)")
+            split = get_split_train_val_test([data_obj])
+        
+        graph_dataset_summary(dataset, split)
+        return dataset, split
     else:
         raise ValueError('Invalid dataset name')
 
@@ -216,7 +356,7 @@ def get_raw_dataset(dataset_name):
     graph_dataset_summary(dataset, split)
     return dataset, split
 
-
+#维度约简
 def dim_reduce(data, y, dataset_name, edge_reduced_dim_dir_path, enforce_reduce = True):
     """
     input:
@@ -237,6 +377,7 @@ def dim_reduce(data, y, dataset_name, edge_reduced_dim_dir_path, enforce_reduce 
     return data
 
 class dimension_reduction():
+    
     def __init__(self, 
         data, 
         y, 
@@ -263,10 +404,11 @@ class dimension_reduction():
         file_name = f'{self.dataset_name}_{self.dim}_eps{eps}_len{self.loader_len}_epoch{self.EPOCH}.pt'
         self.file_path = f'{self.dir_path}/{file_name}'
         os.mkdir(self.dir_path) if not os.path.exists(self.dir_path) else None
+        #缓存检查，如果缓存存在，直接加载降维后数据
         if os.path.exists(self.file_path):
             print(f'==> load data with reduced dimension from {self.file_path}')
             self.data = torch.load(self.file_path)
-            
+        #缓存不存在时，DP 噪声计算，计算满足 (ε, δ)-DP 的噪声标准差
         else:
             # print(y, y[y>9], y.max(), y.min())
             self.std = aa.get_std(
@@ -276,10 +418,11 @@ class dimension_reduction():
                             delta = 1e-5, 
                             verbose = True,
                        )
-            
+            # 降维编码器 将高维特征映射到低维
             self.mlp_encoder = nn.Sequential(
                 nn.Linear(data.shape[1], self.dim),
             )
+            # 分类解码器
             self.mlp_decoder = nn.Sequential(
                 nn.ReLU(),
                 nn.Linear(self.dim, num_class),
@@ -300,15 +443,16 @@ class dimension_reduction():
 
             self.model.cuda()
 
+            #Per-Example Gradient 为vmap计算逐样本梯度做准备准备
             self.worker_model_func, self.worker_param_func, self.worker_buffers_func = make_functional_with_buffers(deepcopy(self.model), disable_autograd_tracking=True)
 
             self.criterion = torch.nn.CrossEntropyLoss()
             self.C = 1
-
+    
     def training_step(self,):
         print(f'==> start training to get data with dimension {self.data.shape[1]} to reduced dimension {self.dim}')
         s_time = time.time()
-
+        #逐样本梯度计算
         def compute_loss(model_para, buffers, x, targets):
             # print(f'==> x shape: {x.shape}, targets shape: {targets.shape}')
             predictions = self.worker_model_func(model_para, buffers, x)
@@ -334,34 +478,39 @@ class dimension_reduction():
                 self.other_routine(per_grad)
         print('==> finish training to get data with reduced dimension, time cost: {:.4f} s'.format(time.time() - s_time))
 
-
+    #DP 梯度处理
     def other_routine(self, per_grad):
-        per_grad = self.clip_per_grad(per_grad)
-
+        per_grad = self.clip_per_grad(per_grad)## 梯度裁剪
+        ## 聚合梯度
         ''' forming gradients'''
         for p_model, p_per in zip(self.model.parameters(), per_grad):
             # print(p_per.shape)
             p_model.grad = torch.mean(p_per, dim=0)
             ''' add noise to gradients'''
+            # 添加高斯噪声
             p_model.grad = p_model.grad + torch.randn_like(p_model.grad) * self.std / p_per.shape[0] 
 
         self.model_update()
     
     def model_update(self):
         '''update parameters'''
-        self.optimizer.step()  
+        self.optimizer.step()  #使用加噪后的梯度更新参数
         ''' copy parameters to worker '''
+        #同步到 worker 函数式模型
         for p_model, p_worker in zip(self.model.parameters(), self.worker_param_func):
             p_worker.copy_(p_model.data)
-
+    #梯度裁剪
     def clip_per_grad(self, per_grad):
         per_grad = list(per_grad)
+        ## 计算每个样本的梯度 L2 范数
         per_grad_norm = self._compute_per_grad_norm(per_grad) + 1e-6 
         # print(f'==> per_grad_norm shape: {per_grad_norm.shape}')
         # print(f'==> per_grad_norm: {per_grad_norm}')
 
         ''' clipping/normalizing '''
+        #裁剪
         multiplier = torch.clamp(self.C / per_grad_norm, max = 1)
+        #逐参数应用裁剪
         for index, p in enumerate(per_grad):
             ''' normalizing '''
             # per_grad[index] = p / self._make_broadcastable(per_grad_norm / self.arg_setup.C, p) 
@@ -378,7 +527,7 @@ class dimension_reduction():
     def _make_broadcastable(self, tensor_to_be_reshape, target_tensor):
         broadcasting_shape = (-1, *[1 for _ in target_tensor.shape[1:]])
         return tensor_to_be_reshape.reshape(broadcasting_shape)
-
+    #获取降维结果
     def get_data_with_reduced_dim(self,):
 
         if os.path.exists(self.file_path):
@@ -391,7 +540,9 @@ class dimension_reduction():
             torch.save(results, self.file_path)
             return results
 
-
+#调整图的边结构，使每个节点满足度约束
+#最小入度 ≥ min_in_degree
+#最大出度 ≤ max_out_degree
 def constrain_edge_index_with_max_in_min_out_degree(
         edge_index, 
         min_in_degree,
@@ -411,6 +562,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
     file_name = f'{dataset_name}_edge_index_min_in_{min_in_degree}_max_out_{max_out_degree}.pt'
     file_path = f'{dir_path}/{file_name}'
     os.mkdir(dir_path) if not os.path.exists(dir_path) else None
+    #检查缓存
     if os.path.exists(file_path):
         print(f'==> load processed edge index from {file_path}')
         data = torch.load(file_path)
@@ -426,8 +578,10 @@ def constrain_edge_index_with_max_in_min_out_degree(
     nodes_in_degree = {}
     nodes_out_degree = {}
     ''' rand node order '''
+    ## 随机化节点顺序
     unique_nodes = unique_nodes[torch.randperm(unique_nodes.numel())]
     print(f'==> constraining max out degree for each node')
+    #对每个节点，随机保留最多 max_out_degree 条出边
     for node in tqdm(unique_nodes):
         node = int(node)
 
@@ -440,6 +594,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
         nodes_out_degree[node] = nodes_out_going_nodes[node].numel()
 
     ''' reconstruct edge index from out degree dict'''
+    #重构边索引
     new_edge_index = []
     print(f'==> reconstructing new edge index from out degree dict')
     for node in tqdm(unique_nodes):
@@ -454,7 +609,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
             )
         )
     new_edge_index = torch.cat(new_edge_index, dim = 1)
-
+    #约束最大入度 随机保留最少min_in_degree条入边
     print(f'==> constraining max in degree for each node')
     for node in tqdm(unique_nodes):
         node = int(node)
@@ -466,7 +621,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
         sampled_in_coming_nodes = in_coming_nodes[torch.randperm(in_coming_nodes.numel())][:min_in_degree]
         nodes_in_coming_nodes[node] = sampled_in_coming_nodes
         nodes_in_degree[node] = nodes_in_coming_nodes[node].numel()
-
+    #重构边索引
     ''' reconstruct edge index from in degree dict'''
     new_edge_index = []
     print(f'==> reconstructing new edge index from in degree dict')
@@ -483,6 +638,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
         )
     new_edge_index = torch.cat(new_edge_index, dim = 1)
 
+    #重新统计度
     print(f'==> computing degree for each node')
     for node in tqdm(unique_nodes):
         node = int(node)
@@ -498,6 +654,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
         nodes_in_degree[node] = nodes_in_coming_nodes[node].numel()
 
     ''' record '''
+    #记录度不足的节点
     nodes_with_in_degree_smaller_than_D = ListDict()
     nodes_with_out_degree_smaller_than_D = ListDict()
     print(f'==> recording nodes with in degree out degree smaller than D')
@@ -508,7 +665,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
         if nodes_out_degree[node] < max_out_degree:
             nodes_with_out_degree_smaller_than_D.add_item(node)
 
-
+    #迭代补充入度
     ''' rand node order '''
     unique_nodes = unique_nodes[torch.randperm(unique_nodes.numel())]
     ''' then make each node with min out degree version 2 '''
@@ -559,6 +716,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
             break
                     
     ''' reconstruct new edge index '''
+    #最终重构边索引
     new_edge_index = []
     print(f'==> reconstructing new edge index from in degree dict')
     for node in tqdm(unique_nodes):
@@ -576,6 +734,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
     new_edge_index = new_edge_index.to(dtype=edge_index_dtype)
 
     ''' find the max D_in and min D_out '''
+    #统计最终度分布
     max_out_degree_real = 0
     min_out_degree_real = 1000000000
     max_in_degree_real = 0
@@ -605,7 +764,7 @@ def constrain_edge_index_with_max_in_min_out_degree(
 
     return new_edge_index, min_in_degree_real, max_out_degree_real, max_in_degree_real
 
-
+#计算所有节点的入度、出度分布，并把结果保存到文件，方便后续分析或绘图
 def store_edge_distribution(edge_index, file_path):
     # return 
     ''' for each edge, find it in-degree and out-degree '''
@@ -627,7 +786,7 @@ def store_edge_distribution(edge_index, file_path):
     # print(min(store['in_degree']), max(store['out_degree']), max(store['in_degree']), min(store['out_degree'])) 
     torch.save(store, file_path)
 
-
+#备用的采样率计算方法（未使用）
 def alternative_sr(new_edge_index):
     unique_nodes = torch.unique(new_edge_index.view(-1))
     ''' q '''
@@ -668,6 +827,8 @@ def alternative_sr(new_edge_index):
     print(1111, sampling_rate.max(), sampling_rate.min(), sampling_rate.max() / q, k)
     exit()
 
+#计算每个节点的出度倒数
+#结果按节点 ID 索引存储为张量，并缓存到磁盘，避免重复计算
 def compute_degree_inverse(edge_index, dataset_name, edge_reduced_dim_dir_path):
     ''' compute degree inverse for each node '''
     mult_factor = 3
@@ -714,21 +875,23 @@ def form_loaders(args):
 
     edge_reduced_dim_dir_path = Path( SETUP.get_dataset_data_path() ) / '_cache_edge_index_right_dp'
     cache_neighboring_data_for_each_graph_path =  Path( SETUP.get_dataset_data_path() ) / '_cache_neighbors_right_dp'
-
+    #读取数据集并分割
     dataset, split = get_raw_dataset(args.dataset)
     graph_data = dataset[0]
 
     '''dim reduce and normalize x'''
+    #标签对齐
     graph_data.y = graph_data.y[:graph_data.x.shape[0]] # for some weird reason, the y is longer than x
+    #对节点特征矩阵x执行 Z-Score 标准化（减均值，除以标准差）
     graph_data.x = (graph_data.x - graph_data.x.mean()) / (graph_data.x.std() + 1e-6)
 
-    
+    #计算度数倒数
     out_degree_inverse = compute_degree_inverse(
                             graph_data.edge_index, 
                             dataset_name = str(dataset), 
                             edge_reduced_dim_dir_path = edge_reduced_dim_dir_path
                         )
-    
+    #子图采样
     assert args.graph_setting  in ['inductive', 'transductive']
     subgraph_sampler_train = sampling.subgraph_sampler(
                                 K = args.K, 
@@ -773,7 +936,8 @@ def form_loaders(args):
     
     train_loader = sampling.get_subgraphs_loader(subgraph_sampler_train, expected_batchsize = args.expected_batchsize, worker_num = args.worker_num)
     # val_loader =   sampling.get_subgraphs_loader(subgraph_sampler_val,   expected_batchsize = 1000, worker_num = args.worker_num, drop_last=False)
-    test_loader =  sampling.get_subgraphs_loader(subgraph_sampler_test,  expected_batchsize = 1000, worker_num = args.worker_num, drop_last = False, dataset_mode='test')
+    # 修改：使用更小的 test_loader 批次大小，确保最后一个批次也足够大
+    test_loader =  sampling.get_subgraphs_loader(subgraph_sampler_test,  expected_batchsize = 512, worker_num = args.worker_num, drop_last = False, dataset_mode='test')
 
     val_loader = None
     return train_loader, val_loader, test_loader, dataset, graph_data.x

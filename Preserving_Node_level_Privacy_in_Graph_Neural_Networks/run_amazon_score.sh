@@ -1,6 +1,6 @@
 for expected_batchsize in 4096
 do
-for epoch in 9
+for epoch in 35
 do
 for lr in 0.01
 do
@@ -10,23 +10,21 @@ for C in 1
 do
 for graph_setting in transductive
 do
-for priv_epsilon in {2,4,8,16,10000}
+for priv_epsilon in 4
 do
 for K in 1
 do
-for num_neighbors in {1,2,3,4,5}
+for num_neighbors in 1
 do
-for num_neighbors_test in {1,4,7,10,13}
+for num_neighbors_test in 1
 do
 for num_not_neighbors in 0
 do
-for seed in {1,2,3}
+for seed in 3
 do
-# for dataset in {Amazon_Computers,Amazon_Photo,PubMed,Reddit,Coauthor_CS}
-for dataset in Amazon_Computers
+for dataset in black
 do
-
-python main.py --expected_batchsize $expected_batchsize \
+    python main_with_initial.py --expected_batchsize $expected_batchsize \
                 --priv_epsilon $priv_epsilon \
                 --epoch $epoch \
                 --lr $lr \
@@ -39,7 +37,7 @@ python main.py --expected_batchsize $expected_batchsize \
                 --C $C \
                 --seed $seed \
                 --graph_setting $graph_setting \
-                --dataset $dataset 
+                --dataset $dataset
 done
 done
 done

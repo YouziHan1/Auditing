@@ -1,3 +1,5 @@
+#通用工具
+#包含指标计算（ClassificationMetrics）、参数/日志工具、可视化
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import argparse
@@ -226,7 +228,7 @@ class data_recorder:
     def __init__(self, root = 'logs', ):
         self.root = f'{os.getcwd()}/{root}'
         if root not in os.listdir(os.getcwd()):
-            os.makedirs(self.root, exist_ok = False)
+            os.makedirs(self.root, exist_ok = True)
         self.filename_existed = set()
 
     def record_data(self, filename, content):

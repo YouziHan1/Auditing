@@ -1,4 +1,6 @@
-                    
+#DP-SGD 实现
+#包含 DP 相关的梯度裁剪、噪声注入、隐私预算统计
+#管理 train/val/test 三阶段
 import enum
 import torch
 import time
@@ -49,7 +51,7 @@ class trainer:
 
         
         print(f'{"="*40}\n')
-
+        #隐私预算与噪声计算
         self.args.delta = 1/len(self.train_loader.dataset)**1.1
         self.std = self.args.std = aa.get_std_node_dp(
                                         q = q,
@@ -227,7 +229,7 @@ class trainer:
                 x, targets = x.to(self.device), targets.to(self.device)
                 # print(f'data transfer time: {time.time() - c_time:.5f} secs')
                 self.optimizer.zero_grad()  # Clear gradients.
-
+                # 逐样本梯度计算
                 # c_time = time.time()
                 per_grad = vmap( grad(compute_loss), in_dims=(None, None, 0, 0) )(self.worker_param_func, self.worker_buffers_func, x, targets)
                 # print(f'==> calculation time: {time.time()-c_time:.5f} secs')

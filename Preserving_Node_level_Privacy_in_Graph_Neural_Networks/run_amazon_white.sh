@@ -1,6 +1,6 @@
 for expected_batchsize in 4096
 do
-for epoch in {20,50}
+for epoch in 35
 do
 for lr in 0.01
 do
@@ -22,9 +22,9 @@ for num_not_neighbors in 0
 do
 for seed in 3
 do
-for dataset in Amazon_Computers
+for dataset in white
 do
-    python main.py --expected_batchsize $expected_batchsize \
+    python main_with_audit.py --expected_batchsize $expected_batchsize \
                 --priv_epsilon $priv_epsilon \
                 --epoch $epoch \
                 --lr $lr \

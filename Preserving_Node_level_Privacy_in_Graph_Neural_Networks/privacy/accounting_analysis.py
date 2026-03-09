@@ -1,3 +1,4 @@
+#隐私预算、噪声标准差计算
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
@@ -438,7 +439,7 @@ def get_std_node_dp(
         saving_path = saving_path,
         )
 
-    sigma = computer.from_privacy_budget_to_DP(epsilon, delta)
+    sigma = computer.noise_from_eps(epsilon, delta)
     # print(f'sigma: {sigma}')   
     return sigma
 

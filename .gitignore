@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+logs/
+*.log
+GRAPH_DATA/
+data/
+data_records/
+*.pt

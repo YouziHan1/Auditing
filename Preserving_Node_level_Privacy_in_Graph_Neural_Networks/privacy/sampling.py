@@ -1,3 +1,4 @@
+#子图采样、batch 组装逻辑
 import torch
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
@@ -192,6 +193,12 @@ class subgraph_sampler(Dataset):
 
         sub_graph_nodes = torch.tensor(sub_graph_nodes, dtype=self.graph_edge_index.dtype)
 
+        # 提取中心节点的 sample_ids（如果存在）
+        center_node_id = root_node
+        center_sample_id = None
+        if hasattr(self.graph_data, 'sample_ids') and self.graph_data.sample_ids is not None:
+            center_sample_id = self.graph_data.sample_ids[center_node_id].item()
+
         return [ 
                 self.graph_data.x[sub_graph_nodes], 
                 0, 
@@ -202,6 +209,7 @@ class subgraph_sampler(Dataset):
                 0, 
                 self.dataset_mode,
                 self.mask[sub_graph_nodes],
+                center_sample_id,  # 新增：中心节点的 sample_id
                 ] 
 
 def collate_subgraphs(batch):
@@ -236,6 +244,7 @@ def collate_subgraphs(batch):
     x = []
     # adj = []
     y = []
+    sample_ids = []  # 新增：收集 sample_ids
 
     for i in range(len(batch)):
         x_tmp = torch.zeros(max_x_shape, batch[i][0].shape[1])
@@ -243,12 +252,20 @@ def collate_subgraphs(batch):
         x.append(x_tmp)
 
         y.append(batch[i][2])
+        
+        # 新增：收集中心节点的 sample_id
+        current_id = batch[i][-1]
+        if current_id is not None:
+            sample_ids.append(current_id)
+        else:
+            sample_ids.append(-1) # 默认值
     
     x = torch.stack(x, dim=0)
     y = torch.stack(y, dim=0)
+    sample_ids = torch.tensor(sample_ids, dtype=torch.long)  # 转为 tensor
     
     # print(f'==> # total: {len(sub_graph_nodes_set)}, # overlapping: {overlapping}, # central: {len(batch)}, {overlapping / len(batch) * 100:.2f}%, {batch[0][6]}')
-    return x, y
+    return x, y, sample_ids  # 新增：返回 sample_ids
 
 def get_subgraphs_loader(train_dataset, expected_batchsize, worker_num = 4, drop_last = True, dataset_mode = 'train'):
     assert expected_batchsize <= len(train_dataset), f'expected_batchsize = {expected_batchsize} > {len(train_dataset)}'

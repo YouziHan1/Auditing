@@ -1,3 +1,5 @@
+#模型定义
+#主要是 G_net (GCN 变体) 及 GCN/GIN 基础单元；损失函数定义
 import torch
 # from torch_geometric.nn import GCNConv, SAGEConv, GINConv
 import torch.nn.functional as F
